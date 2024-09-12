@@ -133,7 +133,7 @@ async def receive_data(sock):
             break
 
 async def handle_network(client_socket):
-    global remaining_time, timer_started, characters
+    global remaining_time, timer_started, characters, circles
     while True:
         game_info = await receive_data(client_socket)
         if game_info:
@@ -144,16 +144,17 @@ async def handle_network(client_socket):
                 timer_started = game_info['timer_started']
                 # print(f"서버로부터 받은 timer_started: {timer_started}")
             if 'characters' in game_info:
-                print(f"서버로부터 받은 characters: {game_info['characters']}")
                 characters = game_info['characters']
-            pass
+            if 'circles' in game_info:
+                print('circles updated')
+                circles = game_info['circles']
 
 def interpolate(start_pos, end_pos, alpha):
     return start_pos + (end_pos - start_pos) * alpha
 
 # 캐릭터 이동 요청 함수
 def send_move_request(directions):
-    move_message = {"action": "move", "move": directions}
+    move_message = {"action": "move", "id": client_id, "move": directions}
     client_socket.sendall(pickle.dumps(move_message))
 
 # 캐릭터 정보 전송 함수
@@ -161,11 +162,8 @@ def send_character_info(x, y, direction):
     character_info_message = {
         "action": "character_info",
         "id": client_id,  # 고유 ID 추가
-        "x": x,
-        "y": y,
-        "direction": direction
+        "info": { "x": x, "y": y, "direction": direction }
     }
-    print(f"캐릭터 정보 전송: {character_info_message}")
     client_socket.sendall(pickle.dumps(character_info_message))
 
 async def main():
@@ -184,8 +182,13 @@ async def main():
             if event.type == pygame.MOUSEBUTTONDOWN and not timer_started:
                 # 서버에 게임 시작 신호 보내기
                 timer_started = True
-                start_message = {"action": "start_timer"}
+                start_message = {"action": "start_timer", "id": client_id}
                 client_socket.send(pickle.dumps(start_message))
+
+        # 화면 업데이트 처리
+        screen.fill(WHITE)
+        for circle in circles:
+            circle.draw(screen)
 
         # 플레이어 이동 처리
         keys = pygame.key.get_pressed()
@@ -225,6 +228,8 @@ async def main():
         player_x = max(0, min(player_x, screen_width - player_size))
         player_y = max(0, min(player_y, screen_height - player_size))
 
+        screen.blit(current_character, (player_x, player_y))
+
         # if keys[pygame.K_a]:
         #     player2_x -= player2_speed
         #     current_character2 = character2_left
@@ -243,7 +248,7 @@ async def main():
 
         # 다른 캐릭터 위치 화면에 그리기
         for player_id, char in characters.items():
-            if player_id != "client_id":
+            if player_id != client_id:
                 # 캐릭터 방향에 따라 이미지를 선택
                 if char["direction"] == "up":
                     current_character2 = character2_up
@@ -255,18 +260,12 @@ async def main():
                     current_character2 = character2_right
 
                 # 캐릭터 위치를 보간하여 부드럽게 이동
-                # player_x = interpolate(player_x, char["x"], 0.5)
-                # player_y = interpolate(player_y, char["y"], 0.5)
+                player2_x = interpolate(player2_x, char["x"], 0.7)
+                player2_y = interpolate(player2_y, char["y"], 0.7)
 
-                player2_x, player2_y = char["x"], char["y"]
-
-        # 화면 업데이트 처리
-        screen.fill(WHITE)
-        for circle in circles:
-            circle.draw(screen)
-
-        screen.blit(current_character, (player_x, player_y))
-        screen.blit(current_character2, (player2_x, player2_y))
+                # player2_x, player2_y = char["x"], char["y"]
+                screen.blit(current_character2, (player2_x, player2_y))
+        
 
         # 충돌 처리
         for circle in circles:

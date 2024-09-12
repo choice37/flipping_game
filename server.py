@@ -69,17 +69,21 @@ def handle_client(client_socket):
     client_socket.setblocking(0)
     try:
         while True:
+            send_data = {}
             # select를 사용하여 데이터 수신 대기
             readable, _, _ = select.select([client_socket], [], [], 0)
             if readable:
                 data = client_socket.recv(1024)
                 if data:
                     message = pickle.loads(data)
+                    client_id = message.get("id")  # 클라이언트 ID 수신
                     # 클라이언트가 게임 시작을 요청한 경우
                     if message.get("action") == "start_timer" and not timer_started:
                         print("타이머가 시작되었습니다.")
                         timer_started = True
                         start_time = pygame.time.get_ticks()
+                        circles = generate_circles()
+                        send_data['circles'] = circles
 
                     if message.get("action") == "move":
                         directions = message.get("move")  # 여러 방향 명령을 리스트로 받음
@@ -100,9 +104,8 @@ def handle_client(client_socket):
                                 characters["player1"]["direction"] = "right"
 
                     if message.get("action") == "character_info":
-                        characters[message.get("id")]["x"] = message.get("x")
-                        characters[message.get("id")]["y"] = message.get("y")
-                        characters[message.get("id")]["direction"] = message.get("direction")
+                        characters[message.get("id")] = message.get("info")
+                        send_data["characters"] = characters
 
             # 타이머가 시작된 경우 남은 시간을 계산하여 클라이언트에 전송
             if timer_started:
@@ -114,12 +117,8 @@ def handle_client(client_socket):
                     timer_started = False
                     print("타이머가 종료되었습니다.")
 
-            send_data = {
-                'circles': circles,
-                'timer_started': timer_started,
-                'remaining_time': remaining_time,
-                'characters': characters
-            }
+                send_data['remaining_time'] = remaining_time
+            send_data['timer_started'] = timer_started
 
             # 클라이언트에 데이터 전송
             client_socket.sendall(pickle.dumps(send_data))
@@ -130,6 +129,9 @@ def handle_client(client_socket):
     except Exception as e:
         print(f"클라이언트 처리 중 오류: {e}")
     finally:
+        if client_id in characters:
+            del characters[client_id]
+            print(f"클라이언트 {client_id}의 캐릭터 정보가 삭제되었습니다.")
         client_socket.close()
         print("클라이언트 연결이 종료되었습니다.")
 
