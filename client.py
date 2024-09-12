@@ -4,6 +4,7 @@ import random
 import asyncio
 import socket
 import pickle
+import uuid
 
 # Pygame 초기화
 pygame.init()
@@ -31,6 +32,8 @@ BLACK = (0, 0, 0)
 font = pygame.font.SysFont(None, 40)
 
 # 캐릭터 설정
+direction = "down"
+client_id = str(uuid.uuid4())
 player_size = 40
 player_x = screen_width // 2 - player_size // 2
 player_y = screen_height // 2 - player_size // 2
@@ -141,6 +144,7 @@ async def handle_network(client_socket):
                 timer_started = game_info['timer_started']
                 # print(f"서버로부터 받은 timer_started: {timer_started}")
             if 'characters' in game_info:
+                print(f"서버로부터 받은 characters: {game_info['characters']}")
                 characters = game_info['characters']
             pass
 
@@ -152,13 +156,20 @@ def send_move_request(directions):
     move_message = {"action": "move", "move": directions}
     client_socket.sendall(pickle.dumps(move_message))
 
-# 캐릭터 위치 전송 함수
-def send_character_position(x, y):
-    position_message = {"action": "position", "x": x, "y": y}
-    client_socket.sendall(pickle.dumps(position_message))
+# 캐릭터 정보 전송 함수
+def send_character_info(x, y, direction):
+    character_info_message = {
+        "action": "character_info",
+        "id": client_id,  # 고유 ID 추가
+        "x": x,
+        "y": y,
+        "direction": direction
+    }
+    print(f"캐릭터 정보 전송: {character_info_message}")
+    client_socket.sendall(pickle.dumps(character_info_message))
 
 async def main():
-    global circles, timer_started, start_time, characters 
+    global circles, timer_started, start_time, characters, direction
     global player_x, player_y, player2_x, player2_y, current_character, current_character2
 
     # 네트워크 통신 태스크 시작
@@ -175,79 +186,79 @@ async def main():
                 timer_started = True
                 start_message = {"action": "start_timer"}
                 client_socket.send(pickle.dumps(start_message))
-                # timer_started = True
-                # start_time = pygame.time.get_ticks()
-                # circles = generate_circles()
 
         # 플레이어 이동 처리
         keys = pygame.key.get_pressed()
-        directions = []
+        # directions = []
+
+        # if keys[pygame.K_LEFT]:
+        #     directions.append("left")
+        # if keys[pygame.K_RIGHT]:
+        #     directions.append("right")
+        # if keys[pygame.K_UP]:
+        #     directions.append("up")
+        # if keys[pygame.K_DOWN]:
+        #     directions.append("down")
+
+        # if directions:
+        #     send_move_request(directions)
 
         if keys[pygame.K_LEFT]:
-            directions.append("left")
+            player_x -= player_speed
+            current_character = character_left
+            direction = "left"
         if keys[pygame.K_RIGHT]:
-            directions.append("right")
+            player_x += player_speed
+            current_character = character_right
+            direction = "right"
         if keys[pygame.K_UP]:
-            directions.append("up")
+            player_y -= player_speed
+            current_character = character_up
+            direction = "up"
         if keys[pygame.K_DOWN]:
-            directions.append("down")
+            player_y += player_speed
+            current_character = character_down
+            direction = "down"
+        
+        send_character_info(player_x, player_y, direction)
 
-        if directions:
-            send_move_request(directions)
+        player_x = max(0, min(player_x, screen_width - player_size))
+        player_y = max(0, min(player_y, screen_height - player_size))
 
-        # 캐릭터 위치 화면에 그리기
+        # if keys[pygame.K_a]:
+        #     player2_x -= player2_speed
+        #     current_character2 = character2_left
+        # if keys[pygame.K_d]:
+        #     player2_x += player2_speed
+        #     current_character2 = character2_right
+        # if keys[pygame.K_w]:
+        #     player2_y -= player2_speed
+        #     current_character2 = character2_up
+        # if keys[pygame.K_s]:
+        #     player2_y += player2_speed
+        #     current_character2 = character2_down
+
+        # player2_x = max(0, min(player2_x, screen_width - player_size))
+        # player2_y = max(0, min(player2_y, screen_height - player_size))
+
+        # 다른 캐릭터 위치 화면에 그리기
         for player_id, char in characters.items():
-            if player_id == "player1":
-                print(char)
+            if player_id != "client_id":
                 # 캐릭터 방향에 따라 이미지를 선택
                 if char["direction"] == "up":
-                    current_character = character_up
+                    current_character2 = character2_up
                 elif char["direction"] == "down":
-                    current_character = character_down
+                    current_character2 = character2_down
                 elif char["direction"] == "left":
-                    current_character = character_left
+                    current_character2 = character2_left
                 elif char["direction"] == "right":
-                    current_character = character_right
+                    current_character2 = character2_right
 
                 # 캐릭터 위치를 보간하여 부드럽게 이동
                 # player_x = interpolate(player_x, char["x"], 0.5)
                 # player_y = interpolate(player_y, char["y"], 0.5)
 
-                player_x, player_y = char["x"], char["y"]
-        
-        # if keys[pygame.K_LEFT]:
-        #     player_x -= player_speed
-        #     current_character = character_left
-        # if keys[pygame.K_RIGHT]:
-        #     player_x += player_speed
-        #     current_character = character_right
-        # if keys[pygame.K_UP]:
-        #     player_y -= player_speed
-        #     current_character = character_up
-        # if keys[pygame.K_DOWN]:
-        #     player_y += player_speed
-        #     current_character = character_down
-        
-        # send_character_position(player_x, player_y)
-
-        player_x = max(0, min(player_x, screen_width - player_size))
-        player_y = max(0, min(player_y, screen_height - player_size))
-
-        if keys[pygame.K_a]:
-            player2_x -= player2_speed
-            current_character2 = character2_left
-        if keys[pygame.K_d]:
-            player2_x += player2_speed
-            current_character2 = character2_right
-        if keys[pygame.K_w]:
-            player2_y -= player2_speed
-            current_character2 = character2_up
-        if keys[pygame.K_s]:
-            player2_y += player2_speed
-            current_character2 = character2_down
-
-        player2_x = max(0, min(player2_x, screen_width - player_size))
-        player2_y = max(0, min(player2_y, screen_height - player_size))
+                player2_x, player2_y = char["x"], char["y"]
 
         # 화면 업데이트 처리
         screen.fill(WHITE)

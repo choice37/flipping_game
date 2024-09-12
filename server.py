@@ -45,8 +45,8 @@ def generate_circles():
 
 # 캐릭터 초기 위치 관리 (서버에서 관리)
 characters = {
-    "player1": {"x": 100, "y": 100, "speed": 2, "direction": "down"},
-    "player2": {"x": 200, "y": 200, "speed": 2, "direction": "down"}
+    # "player1": {"x": 100, "y": 100, "speed": 2, "direction": "down"},
+    # "player2": {"x": 200, "y": 200, "speed": 2, "direction": "down"}
 }
 
 # 소켓 서버 설정
@@ -99,9 +99,10 @@ def handle_client(client_socket):
                                 characters["player1"]["x"] += characters["player1"]["speed"]
                                 characters["player1"]["direction"] = "right"
 
-                    if message.get("action") == "position":
-                        characters["player1"]["x"] = message.get("x")
-                        characters["player1"]["y"] = message.get("y")
+                    if message.get("action") == "character_info":
+                        characters[message.get("id")]["x"] = message.get("x")
+                        characters[message.get("id")]["y"] = message.get("y")
+                        characters[message.get("id")]["direction"] = message.get("direction")
 
             # 타이머가 시작된 경우 남은 시간을 계산하여 클라이언트에 전송
             if timer_started:
