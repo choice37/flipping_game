@@ -176,6 +176,7 @@ def send_character_info(x, y, direction):
 def send_circles_status(circles_status_list):
     circles_status_message = {
         "action": "circle_info_batch",
+        "id": client_id,
         "circles": circles_status_list
     }
     client_socket.sendall(pickle.dumps(circles_status_message))
@@ -183,7 +184,7 @@ def send_circles_status(circles_status_list):
 def request_color():
     color_request = {"action": "request_color", "id": client_id}
     client_socket.sendall(pickle.dumps(color_request))
-
+    
 async def main():
     global circles, timer_started, start_time, characters, direction, player_color, other_player_color
     global player_x, player_y, player2_x, player2_y, current_character, current_character2
@@ -192,6 +193,7 @@ async def main():
     network_task = asyncio.create_task(handle_network(client_socket))
     request_color()
     while player_color is None:
+        print("색상을 받을 때까지 대기 중...")
         await asyncio.sleep(0.1)  # 짧은 대기 시간
 
     while True:
@@ -209,7 +211,6 @@ async def main():
         # 화면 업데이트 처리
         screen.fill(WHITE)
         
-
         # 플레이어 이동 처리
         keys = pygame.key.get_pressed()
 
@@ -235,7 +236,7 @@ async def main():
         player_x = max(0, min(player_x, screen_width - player_size))
         player_y = max(0, min(player_y, screen_height - player_size))
 
-        screen.blit(current_character, (player_x, player_y))
+        
 
         # 다른 캐릭터 위치 화면에 그리기
         for player_id, char in characters.items():
@@ -316,13 +317,13 @@ async def main():
 
         for circle in circles:
             circle.draw(screen)
+        screen.blit(current_character, (player_x, player_y))
         
-        # 변경된 circle 상태 한 번에 전송
         if changed_circles:
             send_circles_status(changed_circles)
-
+        
         pygame.display.flip()
-        clock.tick(60)
+        clock.tick(120)
 
         # 비동기 작업들이 실행될 시간을 양보
         await asyncio.sleep(0) 

@@ -78,6 +78,7 @@ def handle_client(client_socket):
                     message = pickle.loads(data)
                     client_id = message.get("id")  # 클라이언트 ID 수신
                     if message.get("action") == "request_color":
+                        print('색상 요청이 왔습니다.')
                         send_data["player_color"] = "RED" if len(characters) == 0 else "BLUE"
 
                     # 클라이언트가 게임 시작을 요청한 경우
@@ -110,20 +111,23 @@ def handle_client(client_socket):
                         send_data["characters"] = characters
 
                     if message.get("action") == "circle_info_batch":
-                        # 여러 개의 변경된 circle 상태를 처리
-                        for circle_data in message["circles"]:
-                            circle_id = circle_data["id"]  # circle_id는 리스트의 인덱스
+                        print("서버에서 circle 정보 업데이트 요청이 왔습니다.")
+                        # print(message.get("circles"))
+                        # # 여러 개의 변경된 circle 상태를 처리
+                        # for circle_data in message.get("circles"):
+                        #     circle_id = circle_data["id"]  # circle_id는 리스트의 인덱스
 
-                            # 서버에서 해당 circle 상태 업데이트 (리스트 인덱스 사용)
-                            if 0 <= circle_id < len(circles):
-                                circle = circles[circle_id]
-                                # circle_data에 해당 값이 있을 때만 업데이트
-                                if "color" in circle_data:
-                                    circle.color = circle_data["color"]
-                                if "active" in circle_data:
-                                    circle.active = circle_data["active"]
-                                if "active_color" in circle_data:
-                                    circle.active_color = circle_data["active_color"]
+                        #     # 서버에서 해당 circle 상태 업데이트 (리스트 인덱스 사용)
+                        #     if 0 <= circle_id < len(circles):
+                        #         print(circle_data)
+                                # circle = circles[circle_id]
+                                # # circle_data에 해당 값이 있을 때만 업데이트
+                                # if "color" in circle_data:
+                                #     circle.color = circle_data["color"]
+                                # if "active" in circle_data:
+                                #     circle.active = circle_data["active"]
+                                # if "active_color" in circle_data:
+                                #     circle.active_color = circle_data["active_color"]
 
             # 타이머가 시작된 경우 남은 시간을 계산하여 클라이언트에 전송
             if timer_started:
@@ -137,14 +141,13 @@ def handle_client(client_socket):
 
                 send_data['remaining_time'] = remaining_time
             send_data['timer_started'] = timer_started
-            send_data['circles'] = circles  
+            send_data['circles'] = circles
 
             # 클라이언트에 데이터 전송
             client_socket.sendall(pickle.dumps(send_data))
 
-            # 30hz로 제한
-            time.sleep(1 / 100)
-
+            # 60hz로 제한
+            time.sleep(1 / 60)
     except Exception as e:
         print(f"클라이언트 처리 중 오류: {e}")
     finally:
