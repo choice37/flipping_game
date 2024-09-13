@@ -6,7 +6,7 @@ import pickle
 import threading
 import time
 # 서버 설정
-server_ip = '192.168.219.104'
+server_ip = '127.0.0.1'
 server_port = 12345
 
 # Pygame 초기화
@@ -77,13 +77,15 @@ def handle_client(client_socket):
                 if data:
                     message = pickle.loads(data)
                     client_id = message.get("id")  # 클라이언트 ID 수신
+                    if message.get("action") == "request_color":
+                        send_data["player_color"] = "RED" if len(characters) == 0 else "BLUE"
+
                     # 클라이언트가 게임 시작을 요청한 경우
                     if message.get("action") == "start_timer" and not timer_started:
                         print("타이머가 시작되었습니다.")
                         timer_started = True
                         start_time = pygame.time.get_ticks()
                         circles = generate_circles()
-                        send_data['circles'] = circles
 
                     if message.get("action") == "move":
                         directions = message.get("move")  # 여러 방향 명령을 리스트로 받음
@@ -107,6 +109,22 @@ def handle_client(client_socket):
                         characters[message.get("id")] = message.get("info")
                         send_data["characters"] = characters
 
+                    if message.get("action") == "circle_info_batch":
+                        # 여러 개의 변경된 circle 상태를 처리
+                        for circle_data in message["circles"]:
+                            circle_id = circle_data["id"]  # circle_id는 리스트의 인덱스
+
+                            # 서버에서 해당 circle 상태 업데이트 (리스트 인덱스 사용)
+                            if 0 <= circle_id < len(circles):
+                                circle = circles[circle_id]
+                                # circle_data에 해당 값이 있을 때만 업데이트
+                                if "color" in circle_data:
+                                    circle.color = circle_data["color"]
+                                if "active" in circle_data:
+                                    circle.active = circle_data["active"]
+                                if "active_color" in circle_data:
+                                    circle.active_color = circle_data["active_color"]
+
             # 타이머가 시작된 경우 남은 시간을 계산하여 클라이언트에 전송
             if timer_started:
                 elapsed_time = (pygame.time.get_ticks() - start_time) // 1000
@@ -119,6 +137,7 @@ def handle_client(client_socket):
 
                 send_data['remaining_time'] = remaining_time
             send_data['timer_started'] = timer_started
+            send_data['circles'] = circles  
 
             # 클라이언트에 데이터 전송
             client_socket.sendall(pickle.dumps(send_data))
