@@ -83,13 +83,17 @@ async def receive_data(reader):
         # 데이터 길이를 정수로 변환
         data_length = struct.unpack('>I', data_length_bytes)[0]
 
-        # 데이터 길이만큼 수신
-        data = bytearray()
-        while len(data) < data_length:
-            packet = await reader.read(data_length - len(data))
-            if not packet:
-                break
-            data.extend(packet)
+        # 데이터 길이만큼 수신 (데이터가 작으면 바로 처리)
+        if data_length < 1024:  # 작은 데이터는 한 번에 처리
+            data = await reader.readexactly(data_length)
+        else:
+            # 큰 데이터는 부분적으로 수신
+            data = bytearray()
+            while len(data) < data_length:
+                packet = await reader.read(data_length - len(data))
+                if not packet:
+                    break
+                data.extend(packet)
 
         # 받은 데이터를 JSON으로 디코딩
         message = json.loads(data.decode('utf-8'))
@@ -101,6 +105,7 @@ async def receive_data(reader):
     except json.JSONDecodeError as e:
         print(f"JSON 파싱 오류: {e}")
         return None
+
     
 async def handle_client(reader, writer):
     global circles, timer_started, start_time, characters, remaining_time
@@ -131,6 +136,7 @@ async def handle_client(reader, writer):
                 # 여러 개의 변경된 circle 상태를 처리
                 for circle_data in message.get("circles"):
                     circle_id = circle_data["id"]  # circle_id는 리스트의 인덱스
+                    print(circle_data)
 
                     # 서버에서 해당 circle 상태 업데이트 (리스트 인덱스 사용)
                     if 0 <= circle_id < len(circles):
@@ -180,8 +186,8 @@ async def handle_client(reader, writer):
             delta_time = current_time - last_time
             last_time = current_time
         
-        # 여기서 delta_time을 사용하여 타이머 및 게임 업데이트
-        await asyncio.sleep(max(1/70 - delta_time, 0))  # 70Hz를 유지하면서도 부드럽게 처리
+            # 여기서 delta_time을 사용하여 타이머 및 게임 업데이트
+            await asyncio.sleep(max(1/70 - delta_time, 0))  # 70Hz를 유지하면서도 부드럽게 처리
 
     except Exception as e:
         print(f"클라이언트 처리 중 오류: {e}")

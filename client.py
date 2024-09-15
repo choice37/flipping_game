@@ -161,29 +161,38 @@ characters = {}
 
 # 비동기 네트워크 처리
 async def receive_data(sock):
-    while True:
-        try:
-            # 데이터 길이(4바이트)를 먼저 읽음
+    try:
+        while True:
+            # 데이터 길이(4바이트)를 비동기적으로 읽음
             data_length_bytes = await asyncio.get_event_loop().run_in_executor(None, sock.recv, 4)
             if not data_length_bytes:
                 return None
             
+            # 데이터 길이를 정수로 변환
             data_length = int.from_bytes(data_length_bytes, 'big')
 
             # 데이터 길이만큼 수신
             data = bytearray()
             while len(data) < data_length:
-                packet = await asyncio.get_event_loop().run_in_executor(None, sock.recv, 4096)
+                packet = await asyncio.get_event_loop().run_in_executor(None, sock.recv, data_length - len(data))
                 if not packet:
                     break
                 data.extend(packet)
-            
+
             # 받은 데이터를 JSON으로 디코딩
-            game_info = json.loads(data.decode('utf-8'))
-            return game_info
-        except Exception as e:
-            print(f"소켓 오류: {e}")
-            break
+            try:
+                game_info = json.loads(data.decode('utf-8'))
+                return game_info
+            except json.JSONDecodeError as e:
+                print(f"JSON 디코딩 오류: {e}")
+                continue
+
+    except asyncio.IncompleteReadError as e:
+        print(f"데이터 수신 중 오류: {e}")
+        return None
+    except Exception as e:
+        print(f"소켓 오류: {e}")
+        return None
 
 async def handle_network(client_socket):
     global remaining_time, timer_started, characters, circles, player_color, other_player_color
@@ -215,10 +224,14 @@ def send_data(sock, data):
 
         # 데이터 길이를 먼저 4바이트로 전송
         data_length = len(json_data)
-        sock.sendall(struct.pack('>I', data_length))
 
-        # 실제 데이터를 전송
-        sock.sendall(json_data)
+        # 데이터가 크지 않다면 한 번에 전송
+        if data_length < 1024:  # 1KB 이하 데이터는 바로 전송
+            sock.sendall(struct.pack('>I', data_length) + json_data)
+        else:
+            # 큰 데이터는 쪼개서 전송
+            sock.sendall(struct.pack('>I', data_length))
+            sock.sendall(json_data)
 
     except Exception as e:
         print(f"데이터 전송 중 오류: {e}")
@@ -280,7 +293,8 @@ async def main():
                 # 서버에 게임 시작 신호 보내기
                 timer_started = True
                 start_message = {"action": "start_timer", "id": client_id}
-                client_socket.send(json.dumps(start_message).encode('utf-8'))
+                send_data(client_socket, start_message)
+                # client_socket.send(json.dumps(start_message).encode('utf-8'))
 
         # 화면 업데이트 처리
         screen.fill(WHITE)
