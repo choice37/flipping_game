@@ -4,6 +4,7 @@ import random
 import pickle
 import time
 import json
+import struct
 
 # 서버 설정
 server_ip = '192.168.219.104'
@@ -30,8 +31,9 @@ class Circle:
         return {
             "x": self.x,
             "y": self.y,
-            "radius": self.radius,
-            "color": self.color
+            "color": list(self.color),
+            "active": self.active,
+            "active_color": list(self.active_color) if self.active_color else None
         }
     
     @staticmethod
@@ -39,10 +41,9 @@ class Circle:
         return Circle(
             x=data['x'],
             y=data['y'],
-            radius=data['radius'],
-            color=data['color'],
+            color=tuple(data['color']),  # 리스트를 tuple로 변환
             active=data.get('active', False),
-            active_color=data.get('active_color', None)
+            active_color=tuple(data['active_color']) if data.get('active_color') else None  # 리스트를 tuple로 변환 (None 체크)
         )
 
 # 동그라미 생성 함수
@@ -72,6 +73,35 @@ start_time = 0
 total_time = 20
 remaining_time = 0
 
+async def receive_data(reader):
+    try:
+        # 데이터 길이(4바이트)를 먼저 읽음
+        data_length_bytes = await reader.readexactly(4)
+        if not data_length_bytes:
+            return None
+        
+        # 데이터 길이를 정수로 변환
+        data_length = struct.unpack('>I', data_length_bytes)[0]
+
+        # 데이터 길이만큼 수신
+        data = bytearray()
+        while len(data) < data_length:
+            packet = await reader.read(data_length - len(data))
+            if not packet:
+                break
+            data.extend(packet)
+
+        # 받은 데이터를 JSON으로 디코딩
+        message = json.loads(data.decode('utf-8'))
+        return message
+
+    except asyncio.IncompleteReadError as e:
+        print(f"데이터 수신 중 오류: {e}")
+        return None
+    except json.JSONDecodeError as e:
+        print(f"JSON 파싱 오류: {e}")
+        return None
+    
 async def handle_client(reader, writer):
     global circles, timer_started, start_time, characters, remaining_time
     client_id = None
@@ -80,12 +110,7 @@ async def handle_client(reader, writer):
         while True:
             send_data = {}
 
-            # 비동기적으로 클라이언트에서 데이터 읽기
-            data = await reader.read(1024)
-            if not data:
-                break
-
-            message = json.loads(data.decode('utf-8'))
+            message = await receive_data(reader)
             client_id = message.get("id")  # 클라이언트 ID 수신
             if message.get("action") == "request_color":
                 print('색상 요청이 왔습니다.')
@@ -138,7 +163,15 @@ async def handle_client(reader, writer):
             send_data['circles'] = circle_dict_list
 
             # 클라이언트에 데이터 비동기 전송
-            writer.write(json.dumps(send_data).encode('utf-8'))
+            json_data = json.dumps(send_data).encode('utf-8')
+
+            # 데이터의 길이를 먼저 전송 (4바이트)
+            writer.write(len(json_data).to_bytes(4, 'big'))
+            
+            # 실제 데이터 전송
+            writer.write(json_data)
+            
+            # 전송이 완료되도록 대기
             await writer.drain()
 
             # 60hz로 제한

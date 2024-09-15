@@ -8,6 +8,7 @@ import uuid
 import os
 import copy
 import json
+import struct
 
 # Pygame 초기화
 pygame.init()
@@ -88,7 +89,7 @@ current_character2 = character2_down
 
 # 동그라미 클래스
 class Circle:
-    def __init__(self, x, y, color):
+    def __init__(self, x, y, color, radius=20, active=False, active_color=None):
         self.x = x
         self.y = y
         self.radius = 20
@@ -101,18 +102,20 @@ class Circle:
             "x": self.x,
             "y": self.y,
             "radius": self.radius,
-            "color": self.color
+            "color": list(self.color),
+            "active": self.active,
+            "active_color": list(self.active_color) if self.active_color else None
         }
-
+    
     @staticmethod
     def from_dict(data):
         return Circle(
             x=data['x'],
             y=data['y'],
-            radius=data['radius'],
-            color=data['color'],
+            radius=data.get('radius', 20),  # 기본값을 20으로 설정
+            color=tuple(data['color']),  # 리스트를 tuple로 변환
             active=data.get('active', False),
-            active_color=data.get('active_color', None)
+            active_color=tuple(data['active_color']) if data.get('active_color') else None  # 리스트를 tuple로 변환 (None 체크)
         )
 
     def draw(self, screen):
@@ -160,9 +163,22 @@ characters = {}
 async def receive_data(sock):
     while True:
         try:
-            data = await asyncio.get_event_loop().run_in_executor(None, sock.recv, 4096)
-            if not data:
-                break
+            # 데이터 길이(4바이트)를 먼저 읽음
+            data_length_bytes = await asyncio.get_event_loop().run_in_executor(None, sock.recv, 4)
+            if not data_length_bytes:
+                return None
+            
+            data_length = int.from_bytes(data_length_bytes, 'big')
+
+            # 데이터 길이만큼 수신
+            data = bytearray()
+            while len(data) < data_length:
+                packet = await asyncio.get_event_loop().run_in_executor(None, sock.recv, 4096)
+                if not packet:
+                    break
+                data.extend(packet)
+            
+            # 받은 데이터를 JSON으로 디코딩
             game_info = json.loads(data.decode('utf-8'))
             return game_info
         except Exception as e:
@@ -191,6 +207,22 @@ async def handle_network(client_socket):
                 other_player_color = (0, 0, 255) if color == 'RED' else (255, 0, 0)
                 print(f"서버로부터 받은 색상: {color}")
 
+# 클라이언트에서 데이터 전송
+def send_data(sock, data):
+    try:
+        # 데이터를 JSON으로 직렬화하고 UTF-8로 인코딩
+        json_data = json.dumps(data).encode('utf-8')
+
+        # 데이터 길이를 먼저 4바이트로 전송
+        data_length = len(json_data)
+        sock.sendall(struct.pack('>I', data_length))
+
+        # 실제 데이터를 전송
+        sock.sendall(json_data)
+
+    except Exception as e:
+        print(f"데이터 전송 중 오류: {e}")
+
 def interpolate(start_pos, end_pos, alpha):
     return start_pos + (end_pos - start_pos) * alpha
 
@@ -201,7 +233,8 @@ def send_character_info(x, y, direction):
         "id": client_id,  # 고유 ID 추가
         "info": { "x": x, "y": y, "direction": direction }
     }
-    client_socket.sendall(json.dumps(character_info_message).encode('utf-8'))
+    send_data(client_socket, character_info_message)
+    # client_socket.sendall(json.dumps(character_info_message).encode('utf-8'))
 
 # circles 정보 전송 함수 (여러 개 전송)
 def send_circles_status(circles_status_list):
@@ -210,11 +243,13 @@ def send_circles_status(circles_status_list):
         "id": client_id,
         "circles": circles_status_list
     }
-    client_socket.sendall(json.dumps(circles_status_message).encode('utf-8'))
+    send_data(client_socket, circles_status_message)
+    # client_socket.sendall(json.dumps(circles_status_message).encode('utf-8'))
 
 def request_color():
     color_request = {"action": "request_color", "id": client_id}
-    client_socket.sendall(json.dumps(color_request).encode('utf-8'))
+    send_data(client_socket, color_request)
+    # client_socket.sendall(json.dumps(color_request).encode('utf-8'))
     
 async def main():
     global circles, timer_started, start_time, characters, direction, player_color, other_player_color
