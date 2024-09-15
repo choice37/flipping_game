@@ -33,6 +33,17 @@ class Circle:
             "radius": self.radius,
             "color": self.color
         }
+    
+    @staticmethod
+    def from_dict(data):
+        return Circle(
+            x=data['x'],
+            y=data['y'],
+            radius=data['radius'],
+            color=data['color'],
+            active=data.get('active', False),
+            active_color=data.get('active_color', None)
+        )
 
 # 동그라미 생성 함수
 def generate_circles():
@@ -137,7 +148,7 @@ async def handle_client(reader, writer):
             last_time = current_time
         
         # 여기서 delta_time을 사용하여 타이머 및 게임 업데이트
-        await asyncio.sleep(max(1/70 - delta_time, 0))  # 60Hz를 유지하면서도 부드럽게 처리
+        await asyncio.sleep(max(1/70 - delta_time, 0))  # 70Hz를 유지하면서도 부드럽게 처리
 
     except Exception as e:
         print(f"클라이언트 처리 중 오류: {e}")

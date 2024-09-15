@@ -96,6 +96,25 @@ class Circle:
         self.active = False
         self.active_color = None
 
+    def to_dict(self):
+        return {
+            "x": self.x,
+            "y": self.y,
+            "radius": self.radius,
+            "color": self.color
+        }
+
+    @staticmethod
+    def from_dict(data):
+        return Circle(
+            x=data['x'],
+            y=data['y'],
+            radius=data['radius'],
+            color=data['color'],
+            active=data.get('active', False),
+            active_color=data.get('active_color', None)
+        )
+
     def draw(self, screen):
         pygame.draw.circle(screen, self.color, (self.x, self.y), self.radius)
         if self.active:
@@ -164,7 +183,8 @@ async def handle_network(client_socket):
             if 'characters' in game_info:
                 characters = game_info['characters']
             if 'circles' in game_info:
-                circles = game_info['circles']
+                circles_data = game_info['circles']
+                circles = [Circle.from_dict(circle_data) for circle_data in circles_data]
             if 'player_color' in game_info:
                 color = game_info['player_color']  # 서버에서 받은 색상 설정
                 player_color = (255, 0, 0) if color == 'RED' else (0, 0, 255)
@@ -229,7 +249,6 @@ async def main():
 
         # 화면 업데이트 처리
         screen.fill(WHITE)
-        
         # 플레이어 이동 처리
         keys = pygame.key.get_pressed()
         current_time = pygame.time.get_ticks()  # 현재 시간
