@@ -3,17 +3,18 @@ import pygame
 import random
 import pickle
 import time
+import json
 
 # 서버 설정
-server_ip = '127.0.0.1'
+server_ip = '192.168.219.104'
 server_port = 12345
 
 # Pygame 초기화
 pygame.init()
 
 # 화면 설정
-screen_width = 640
-screen_height = 480
+screen_width = 1080
+screen_height = 720
 
 # 동그라미 클래스 정의
 class Circle:
@@ -25,10 +26,19 @@ class Circle:
         self.active = False
         self.active_color = None
 
+    def to_dict(self):
+        return {
+            "x": self.x,
+            "y": self.y,
+            "radius": self.radius,
+            "color": self.color
+        }
+
 # 동그라미 생성 함수
 def generate_circles():
     circles = []
-    while len(circles) < 20:
+    circle_length = 50
+    while len(circles) < circle_length:
         x = random.randint(50, screen_width - 50)
         y = random.randint(50, screen_height - 50)
         overlap = False
@@ -38,7 +48,7 @@ def generate_circles():
                 overlap = True
                 break
         if not overlap:
-            color = (255, 0, 0) if len(circles) < 10 else (0, 0, 255)
+            color = (255, 0, 0) if len(circles) < circle_length / 2 else (0, 0, 255)
             circles.append(Circle(x, y, color))
     return circles
 
@@ -64,7 +74,7 @@ async def handle_client(reader, writer):
             if not data:
                 break
 
-            message = pickle.loads(data)
+            message = json.loads(data.decode('utf-8'))
             client_id = message.get("id")  # 클라이언트 ID 수신
             if message.get("action") == "request_color":
                 print('색상 요청이 왔습니다.')
@@ -77,24 +87,6 @@ async def handle_client(reader, writer):
                 start_time = pygame.time.get_ticks()
                 circles = generate_circles()
 
-            if message.get("action") == "move":
-                directions = message.get("move")  # 여러 방향 명령을 리스트로 받음
-                
-                # 리스트 내의 모든 방향을 처리
-                for direction in directions:
-                    if direction == "up":
-                        characters["player1"]["y"] -= characters["player1"]["speed"]
-                        characters["player1"]["direction"] = "up"
-                    if direction == "down":
-                        characters["player1"]["y"] += characters["player1"]["speed"]
-                        characters["player1"]["direction"] = "down"
-                    if direction == "left":
-                        characters["player1"]["x"] -= characters["player1"]["speed"]
-                        characters["player1"]["direction"] = "left"
-                    if direction == "right":
-                        characters["player1"]["x"] += characters["player1"]["speed"]
-                        characters["player1"]["direction"] = "right"
-
             if message.get("action") == "character_info":
                 characters[message.get("id")] = message.get("info")
                 send_data["characters"] = characters
@@ -106,7 +98,6 @@ async def handle_client(reader, writer):
 
                     # 서버에서 해당 circle 상태 업데이트 (리스트 인덱스 사용)
                     if 0 <= circle_id < len(circles):
-                        print(circle_data)
                         circle = circles[circle_id]
                         # circle_data에 해당 값이 있을 때만 업데이트
                         if "color" in circle_data:
@@ -115,6 +106,10 @@ async def handle_client(reader, writer):
                             circle.active = circle_data["active"]
                         if "active_color" in circle_data:
                             circle.active_color = circle_data["active_color"]
+                        if "x" in circle_data:
+                            circle.x = circle_data["x"]
+                        if "y" in circle_data:
+                            circle.y = circle_data["y"]
 
             # 타이머가 시작된 경우 남은 시간을 계산하여 클라이언트에 전송
             if timer_started:
@@ -128,10 +123,11 @@ async def handle_client(reader, writer):
 
                 send_data['remaining_time'] = remaining_time
             send_data['timer_started'] = timer_started
-            send_data['circles'] = circles
+            circle_dict_list = [circle.to_dict() for circle in circles]
+            send_data['circles'] = circle_dict_list
 
             # 클라이언트에 데이터 비동기 전송
-            writer.write(pickle.dumps(send_data))
+            writer.write(json.dumps(send_data).encode('utf-8'))
             await writer.drain()
 
             # 60hz로 제한
@@ -141,7 +137,7 @@ async def handle_client(reader, writer):
             last_time = current_time
         
         # 여기서 delta_time을 사용하여 타이머 및 게임 업데이트
-        await asyncio.sleep(max(1/60 - delta_time, 0))  # 60Hz를 유지하면서도 부드럽게 처리
+        await asyncio.sleep(max(1/70 - delta_time, 0))  # 60Hz를 유지하면서도 부드럽게 처리
 
     except Exception as e:
         print(f"클라이언트 처리 중 오류: {e}")
