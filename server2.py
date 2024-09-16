@@ -4,7 +4,6 @@ import random
 import pickle
 import time
 import json
-import struct
 
 # 서버 설정
 server_ip = '192.168.219.104'
@@ -19,37 +18,45 @@ screen_height = 720
 
 # 동그라미 클래스 정의
 class Circle:
-    def __init__(self, x, y, color):
+    def __init__(self, x, y, color, id, is_gray=False, radius=20, active=False, active_color=None):
+        self.id = id
         self.x = x
         self.y = y
+        self.is_gray = is_gray  # 회색 상태 추가
         self.radius = 20
         self.color = color
-        self.active = False
-        self.active_color = None
+        self.active = active
+        self.active_color = active_color
+        
 
     def to_dict(self):
         return {
             "x": self.x,
             "y": self.y,
             "color": list(self.color),
+            "id": self.id,
             "active": self.active,
-            "active_color": list(self.active_color) if self.active_color else None
+            "active_color": list(self.active_color) if self.active_color else None,
+            "is_gray": self.is_gray
         }
     
     @staticmethod
-    def from_dict(data):
+    def from_dict(data):            
         return Circle(
             x=data['x'],
             y=data['y'],
             color=tuple(data['color']),  # 리스트를 tuple로 변환
+            id=data['id'],
             active=data.get('active', False),
-            active_color=tuple(data['active_color']) if data.get('active_color') else None  # 리스트를 tuple로 변환 (None 체크)
+            active_color=tuple(data['active_color']) if data.get('active_color') else None,  # 리스트를 tuple로 변환 (None 체크)
+            is_gray=data.get('is_gray', False)
         )
 
 # 동그라미 생성 함수
 def generate_circles():
     circles = []
     circle_length = 50
+    circle_id = 0  # ID 생성용 초기값
     while len(circles) < circle_length:
         x = random.randint(50, screen_width - 50)
         y = random.randint(50, screen_height - 50)
@@ -60,8 +67,9 @@ def generate_circles():
                 overlap = True
                 break
         if not overlap:
-            color = (255, 0, 0) if len(circles) < circle_length / 2 else (0, 0, 255)
-            circles.append(Circle(x, y, color))
+            color = (255, 0, 0) if len(circles) < circle_length / 2 else (0, 0, 255)  # RED 또는 BLUE
+            circles.append(Circle(x, y, color, circle_id))  # 고유 ID 부여
+            circle_id += 1  # 다음 동그라미를 위해 ID 증가
     return circles
 
 # 캐릭터 초기 위치 관리 (서버에서 관리)
@@ -73,6 +81,7 @@ start_time = 0
 total_time = 20
 remaining_time = 0
 
+# 서버에서 데이터 읽는 부분
 async def receive_data(reader):
     try:
         # 데이터 길이(4바이트)를 먼저 읽음
@@ -81,19 +90,12 @@ async def receive_data(reader):
             return None
         
         # 데이터 길이를 정수로 변환
-        data_length = struct.unpack('>I', data_length_bytes)[0]
+        data_length = int.from_bytes(data_length_bytes, 'big')
 
-        # 데이터 길이만큼 수신 (데이터가 작으면 바로 처리)
-        if data_length < 1024:  # 작은 데이터는 한 번에 처리
-            data = await reader.readexactly(data_length)
-        else:
-            # 큰 데이터는 부분적으로 수신
-            data = bytearray()
-            while len(data) < data_length:
-                packet = await reader.read(data_length - len(data))
-                if not packet:
-                    break
-                data.extend(packet)
+        # 데이터 길이만큼 수신
+        data = await reader.readexactly(data_length)
+        if not data:
+            return None
 
         # 받은 데이터를 JSON으로 디코딩
         message = json.loads(data.decode('utf-8'))
@@ -105,8 +107,9 @@ async def receive_data(reader):
     except json.JSONDecodeError as e:
         print(f"JSON 파싱 오류: {e}")
         return None
-
     
+lock = asyncio.Lock()
+
 async def handle_client(reader, writer):
     global circles, timer_started, start_time, characters, remaining_time
     client_id = None
@@ -118,8 +121,8 @@ async def handle_client(reader, writer):
             message = await receive_data(reader)
             client_id = message.get("id")  # 클라이언트 ID 수신
             if message.get("action") == "request_color":
-                print('색상 요청이 왔습니다.')
                 send_data["player_color"] = "RED" if len(characters) == 0 else "BLUE"
+                print('색상 요청이 왔습니다.', send_data["player_color"])
 
             # 클라이언트가 게임 시작을 요청한 경우
             if message.get("action") == "start_timer" and not timer_started:
@@ -129,35 +132,39 @@ async def handle_client(reader, writer):
                 circles = generate_circles()
 
             if message.get("action") == "character_info":
-                characters[message.get("id")] = message.get("info")
+                # 이 부분에서 characters를 안전하게 업데이트하기 위해 작은 범위에서 락을 사용
+                async with lock:
+                    characters[message.get("id")] = message.get("info")
                 send_data["characters"] = characters
 
             if message.get("action") == "circle_info_batch":
                 # 여러 개의 변경된 circle 상태를 처리
-                for circle_data in message.get("circles"):
-                    circle_id = circle_data["id"]  # circle_id는 리스트의 인덱스
-                    print(circle_data)
+                async with lock:  # circle 업데이트 시에만 락을 사용
+                    for circle_data in message.get("circles"):
+                        circle_id = circle_data["id"]  # circle_id는 리스트의 인덱스
+                        # print(circle_data)
 
-                    # 서버에서 해당 circle 상태 업데이트 (리스트 인덱스 사용)
-                    if 0 <= circle_id < len(circles):
-                        circle = circles[circle_id]
-                        # circle_data에 해당 값이 있을 때만 업데이트
-                        if "color" in circle_data:
-                            circle.color = circle_data["color"]
-                        if "active" in circle_data:
-                            circle.active = circle_data["active"]
-                        if "active_color" in circle_data:
-                            circle.active_color = circle_data["active_color"]
-                        if "x" in circle_data:
-                            circle.x = circle_data["x"]
-                        if "y" in circle_data:
-                            circle.y = circle_data["y"]
+                        # 서버에서 해당 circle 상태 업데이트 (리스트 인덱스 사용)
+                        if 0 <= circle_id < len(circles):
+                            circle = circles[circle_id]
+                            if "color" in circle_data:
+                                circle.color = circle_data["color"]
+                            if "active" in circle_data:
+                                circle.active = circle_data["active"]
+                            if "active_color" in circle_data:
+                                circle.active_color = circle_data["active_color"]
+                            if "x" in circle_data:
+                                circle.x = circle_data["x"]
+                            if "y" in circle_data:
+                                circle.y = circle_data["y"]
+                            if "is_gray" in circle_data:
+                                circle.is_gray = circle_data["is_gray"]
 
             # 타이머가 시작된 경우 남은 시간을 계산하여 클라이언트에 전송
             if timer_started:
                 elapsed_time = (pygame.time.get_ticks() - start_time) // 1000
                 remaining_time = max(0, total_time - elapsed_time)
-                
+
                 # 남은 시간이 0이 되면 타이머 종료
                 if remaining_time == 0:
                     timer_started = False
@@ -166,6 +173,7 @@ async def handle_client(reader, writer):
                 send_data['remaining_time'] = remaining_time
             send_data['timer_started'] = timer_started
             circle_dict_list = [circle.to_dict() for circle in circles]
+                    
             send_data['circles'] = circle_dict_list
 
             # 클라이언트에 데이터 비동기 전송
@@ -173,21 +181,17 @@ async def handle_client(reader, writer):
 
             # 데이터의 길이를 먼저 전송 (4바이트)
             writer.write(len(json_data).to_bytes(4, 'big'))
-            
-            # 실제 데이터 전송
             writer.write(json_data)
-            
+
             # 전송이 완료되도록 대기
             await writer.drain()
 
-            # 60hz로 제한
-            # await asyncio.sleep(1 / 60)
             current_time = time.time()
             delta_time = current_time - last_time
             last_time = current_time
-        
-            # 여기서 delta_time을 사용하여 타이머 및 게임 업데이트
-            await asyncio.sleep(max(1/70 - delta_time, 0))  # 70Hz를 유지하면서도 부드럽게 처리
+
+            # 타이머 및 게임 업데이트를 위해 대기
+            await asyncio.sleep(1/70)  # 70Hz를 유지하면서도 부드럽게 처리
 
     except Exception as e:
         print(f"클라이언트 처리 중 오류: {e}")
